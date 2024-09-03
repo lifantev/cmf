@@ -1,25 +1,8 @@
 from dataclasses import dataclass
+from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import pandas as pd
 from marketdata import MarketData
-
-def process_market_data(data: dict[str, MarketData]):
-    """
-    Process the market data by converting the local_timestamp column in microseconds to a datetime object and setting it as the index of the DataFrame.
-
-    Parameters
-    --------
-    data: dict[str, marketdata.MarketData] 
-        Dictionary of MarketData, indexed by trading insrument name.
-    """
-    for mdata in data.values():
-        mdata.trades['timestamp'] = pd.to_datetime(mdata.trades['local_timestamp'], unit='us')
-        mdata.lob['timestamp'] = pd.to_datetime(mdata.lob['local_timestamp'], unit='us')
-
-        mdata.trades.set_index('timestamp', inplace=True)
-        mdata.lob.set_index('timestamp', inplace=True)
-
-    return data
 
 @dataclass
 class CandlesSeries:
@@ -49,6 +32,26 @@ class CandlesSeries:
     data: pd.DataFrame
     window_ms: int
 
+
+def process_market_data(data: dict[str, MarketData]):
+    """
+    Process the market data by converting the local_timestamp column in microseconds to a datetime object and setting it as the index of the DataFrame.
+
+    Parameters
+    --------
+    data: dict[str, marketdata.MarketData] 
+        Dictionary of MarketData, indexed by trading insrument name.
+    """
+    for mdata in data.values():
+        mdata.trades['timestamp'] = pd.to_datetime(mdata.trades['local_timestamp'], unit='us')
+        mdata.lob['timestamp'] = pd.to_datetime(mdata.lob['local_timestamp'], unit='us')
+
+        mdata.trades.set_index('timestamp', inplace=True)
+        mdata.lob.set_index('timestamp', inplace=True)
+
+    return data
+
+
 def generate_candles(data: dict[str, MarketData], window_ms: int) -> dict[str, CandlesSeries]:
     """
     Generate CandlesSeries from market data for provided trading instruments.
@@ -65,16 +68,22 @@ def generate_candles(data: dict[str, MarketData], window_ms: int) -> dict[str, C
     retval: dict[str, CandlesSeries]
         Dictionary of CandlesSeries, indexed by trading insrument name.
     """
-    candles: dict[str, CandlesSeries] = {}
+    with ProcessPoolExecutor() as executor:
+        # Generate candles for each instrument in parallel
+        return {
+            instr:candles 
+            for instr, candles in zip(
+                data.keys(), 
+                executor.map(gen_cnd, data.values(), [window_ms]*len(data))
+            )
+        }
 
-    for instr, md in data.items():
-        candles[instr] = CandlesSeries(
-            data=generate_candles_dataframe(md, window_ms),
-            window_ms=window_ms,
-        )
-
-    return candles
-        
+# helper to generate candles for single instrument
+def gen_cnd(md: MarketData, window_ms: int) -> CandlesSeries:
+    return CandlesSeries(
+        data=generate_candles_dataframe(md, window_ms),
+        window_ms=window_ms,
+    )
 
 def generate_candles_dataframe(data: MarketData, window_ms: int) -> pd.DataFrame:
     """
