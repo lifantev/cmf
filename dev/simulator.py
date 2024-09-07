@@ -1,7 +1,7 @@
 from collections import defaultdict
 from dataclasses import dataclass
 import numpy as np
-from candles import CandlesSeries
+from candles import CandleSeries
 from strategies import Strategy
 
 @dataclass
@@ -19,20 +19,19 @@ class TradingSimulator:
     TradingSimulator simulates trading based on added strategies and market data.
     """
 
-    def __init__(self, candles: dict[str, CandlesSeries]):
+    def __init__(self, candles: dict[str, CandleSeries]):
         """
         Parameters
         -----------
-        candles: dict[str, CandlesSeries]
+        candles: dict[str, CandleSeries]
            Candle series for each instrument. Series must be not empty.
         """
         if not candles:
             raise ValueError('Candle series must be provided')
-
-        candles_num = len(candles[list(candles.keys())[0]])
+        candles_num = len(candles[list(candles.keys())[0]].data)
         if candles_num < 1:
             raise ValueError('Candle series must have at least one candle')
-        if any(len(candles[k])!= candles_num for k in candles):
+        if any(len(candles[k].data) != candles_num for k in candles):
             raise ValueError('Candle series must have same length')
 
         self.candles = candles
@@ -84,39 +83,42 @@ class TradingSimulator:
         """
         results: dict[str, TradingStats] = {}
         for name, strategy in self.strategies.items():
-            results[name] = self.__simulate_strategy__(strategy)
+            results[name] = self._simulate_strategy(strategy)
 
         return results
 
 
-    def __simulate_strategy__(self, strategy: Strategy) -> TradingStats:
+    def _simulate_strategy(self, strategy: Strategy) -> TradingStats:
         """
         Simulate a single strategy.
         """
-        pnl = 0
+        pnl: float = 0
+        max_pnl: float = 0
         pnl_series = np.zeros(self.candles_number)
-        traded_volume = 0
-        max_drawdown = 0
-        position_flips = defaultdict(int)
-        avg_holding_time = defaultdict(int)
-        curr_positions = defaultdict(int)
+        traded_volume: int = 0
+        max_drawdown: float = 0
+        position_flips: dict[str, int] = defaultdict(int)
+        avg_holding_time: dict[str, int] = defaultdict(int)
+        curr_position: dict[str, int] = defaultdict(int)
 
         for t in range(self.candles_number): # iterate over candles
             actions = strategy.actions_vector[t]
+            if not actions:
+                continue
 
             for instr, action in actions.items(): # iterate over instruments and their action within this candle
-                price = self.__trading_price__(instr, strategy.mode, action.quantity, t)             
-                traded_volume += action.quantity
+                price = self._trading_price(instr, strategy.mode, action.quantity, t)             
+                traded_volume += abs(action.quantity)
 
                 if action.quantity > 0: # buy
                     pnl -= price * action.quantity 
-                    if curr_positions[instr] <= 0:
-                        curr_positions[instr] = 1
+                    if curr_position[instr] <= 0:
+                        curr_position[instr] = 1
                         position_flips[instr] += 1
                 elif action.quantity < 0: # sell
-                    pnl += price * action.quantity 
-                    if curr_positions[instr] >= 0:
-                        curr_positions[instr] = -1
+                    pnl += price * abs(action.quantity) 
+                    if curr_position[instr] >= 0:
+                        curr_position[instr] = -1
                         position_flips[instr] += 1
                 else:  # hold
                     avg_holding_time[instr] += 1 
@@ -125,21 +127,21 @@ class TradingSimulator:
             max_drawdown = max(max_drawdown, max_pnl - pnl)
             pnl_series[t] = pnl
 
-        sharpe_ratio = calc_sharpe_ratio(pnl_series)
-        sortino_ratio = calc_sortino_ratio(pnl_series)
+        sharpe_ratio = _calc_sharpe_ratio(pnl_series)
+        sortino_ratio = _calc_sortino_ratio(pnl_series)
 
         return TradingStats(
             pnl=pnl,
             traded_volume=traded_volume,
             max_drawdown=max_drawdown,
             position_flips=position_flips,
-            avg_holding_time={instr: (holds/self.candles_num) for instr, holds in avg_holding_time},
+            avg_holding_time={instr: (holds/self.candles_number) for instr, holds in avg_holding_time.items()},
             sharpe_ratio=sharpe_ratio,
             sortino_ratio=sortino_ratio
         )
 
 
-    def __trading_price__(self, instrument: str, mode: str, quantity: int, t: int) -> float:
+    def _trading_price(self, instrument: str, mode: str, quantity: int, t: int) -> float:
         """
         Get trading price for instrument's candle at index T based on mode and quantity.
         """
@@ -147,20 +149,20 @@ class TradingSimulator:
             raise ValueError(f"Instrument '{instrument}' is not contained in trading simulator candles")
 
         if mode == Strategy.CLOSE:
-            return self.candles[instrument][t][CandlesSeries.CLOSE]
+            return self.candles[instrument].get_value_at(t, CandleSeries.CLOSE)
         elif mode == Strategy.AVERAGE:
             if quantity > 0: # buy
-                return self.candles[instrument][t][CandlesSeries.AVG_BUY_PRICE]
+                return self.candles[instrument].get_value_at(t, CandleSeries.AVG_BUY_PRICE)
             elif quantity < 0: # sell
-                return self.candles[instrument][t][CandlesSeries.AVG_SELL_PRICE]
+                return self.candles[instrument].get_value_at(t, CandleSeries.AVG_SELL_PRICE)
             return 0
 
         raise ValueError(f"Unsupported mode '{mode}'. Supported modes are: {Strategy.valid_modes()}")
 
 
-def calc_sharpe_ratio(pnl):
+def _calc_sharpe_ratio(pnl):
     return np.mean(pnl) / np.std(pnl) if np.std(pnl) != 0 else 0
 
-def calc_sortino_ratio(pnl):
+def _calc_sortino_ratio(pnl):
     downside_std = np.std([p for p in pnl if p < 0])
     return np.mean(pnl) / downside_std if downside_std != 0 else 0

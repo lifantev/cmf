@@ -1,13 +1,14 @@
 from dataclasses import dataclass
 from concurrent.futures import ProcessPoolExecutor
 import numpy as np
+from typing import *
 import pandas as pd
 from marketdata import MarketData
 
 @dataclass
-class CandlesSeries:
+class CandleSeries:
     """
-    Candle represents OLHC candle. CandlesSeries stores pandas.DataFrame with trading statistics.  
+    Candle represents OLHC candle. CandleSeries stores pandas.DataFrame with trading statistics.  
     Columns in DataFrame:
     - timestamp
     - open
@@ -32,10 +33,17 @@ class CandlesSeries:
     data: pd.DataFrame
     window_ms: int
 
+    def get_candle_at(self, index: int, column: str) -> pd.Series: 
+        return self.data.iloc[index]
 
-def process_market_data(data: dict[str, MarketData]):
+    def get_value_at(self, index: int, column: str) -> Any:
+        return self.data.iloc[index][column]
+
+
+def _process_market_data(data: dict[str, MarketData]):
     """
-    Process the market data by converting the local_timestamp column in microseconds to a datetime object and setting it as the index of the DataFrame.
+    Process the market data by converting the local_timestamp column in microseconds to a datetime object
+    and setting it as the index of the DataFrame.
 
     Parameters
     --------
@@ -44,17 +52,17 @@ def process_market_data(data: dict[str, MarketData]):
     """
     for mdata in data.values():
         mdata.trades['timestamp'] = pd.to_datetime(mdata.trades['local_timestamp'], unit='us')
-        mdata.lob['timestamp'] = pd.to_datetime(mdata.lob['local_timestamp'], unit='us')
+        # mdata.lob['timestamp'] = pd.to_datetime(mdata.lob['local_timestamp'], unit='us')
 
         mdata.trades.set_index('timestamp', inplace=True)
-        mdata.lob.set_index('timestamp', inplace=True)
+        # mdata.lob.set_index('timestamp', inplace=True)
 
     return data
 
 
-def generate_candles(data: dict[str, MarketData], window_ms: int) -> dict[str, CandlesSeries]:
+def generate_candles(data: dict[str, MarketData], window_ms: int) -> dict[str, CandleSeries]:
     """
-    Generate CandlesSeries from market data for provided trading instruments.
+    Generate CandleSeries from market data for provided trading instruments.
 
     Parameters
     --------
@@ -65,29 +73,31 @@ def generate_candles(data: dict[str, MarketData], window_ms: int) -> dict[str, C
 
     Returns
     --------
-    retval: dict[str, CandlesSeries]
-        Dictionary of CandlesSeries, indexed by trading insrument name.
+    retval: dict[str, CandleSeries]
+        Dictionary of CandleSeries, indexed by trading insrument name.
     """
+    data = _process_market_data(data)
+
     with ProcessPoolExecutor() as executor:
         # Generate candles for each instrument in parallel
         return {
             instr:candles 
             for instr, candles in zip(
                 data.keys(), 
-                executor.map(gen_cnd, data.values(), [window_ms]*len(data))
+                executor.map(_gen_cnd, data.values(), [window_ms]*len(data))
             )
         }
 
 # helper to generate candles for single instrument
-def gen_cnd(md: MarketData, window_ms: int) -> CandlesSeries:
-    return CandlesSeries(
-        data=generate_candles_dataframe(md, window_ms),
+def _gen_cnd(md: MarketData, window_ms: int) -> CandleSeries:
+    return CandleSeries(
+        data=_generate_candles_dataframe(md, window_ms),
         window_ms=window_ms,
     )
 
-def generate_candles_dataframe(data: MarketData, window_ms: int) -> pd.DataFrame:
+def _generate_candles_dataframe(data: MarketData, window_ms: int) -> pd.DataFrame:
     """
-    Generate pandas.DataFrame for CandlesSeries.
+    Generate pandas.DataFrame for CandleSeries.
 
     Parameters
     --------
@@ -111,6 +121,10 @@ def generate_candles_dataframe(data: MarketData, window_ms: int) -> pd.DataFrame
     sell_volume = sampled_trades.apply(lambda x: x['amount'][x['side'] == 'sell'].sum())
 
     candles = pd.concat([ohlc_data, buy_avg_price, sell_avg_price, buy_volume, sell_volume], axis=1)
-    candles.columns = ['open', 'high', 'low', 'close', 'avg_buy_price', 'avg_sell_price', 'buy_volume', 'sell_volume']
+    candles.columns = pd.Index([
+        CandleSeries.OPEN, CandleSeries.HIGH, CandleSeries.LOW, CandleSeries.CLOSE,  
+        CandleSeries.AVG_BUY_PRICE, CandleSeries.AVG_SELL_PRICE, 
+        CandleSeries.BUY_VOLUME, CandleSeries.SELL_VOLUME,
+    ])
 
     return candles

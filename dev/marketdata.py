@@ -12,6 +12,7 @@ class MarketData:
     lob: pd.DataFrame
     trades: pd.DataFrame
 
+
 def load_market_data(path: str) -> dict[str, MarketData]:
     """
     Load market data in provided directory.
@@ -39,7 +40,8 @@ def load_market_data(path: str) -> dict[str, MarketData]:
     pepe_trades_file = "trades_1000pepeusdt.csv"
     doge_trades_file = "trades_dogeusdt.csv"
 
-    data = {}
+    data: dict[str, MarketData] = {}
+
     data[PEPEUSDT] = MarketData(
         lob=pd.read_csv(path + pepe_lob_file),
         trades=pd.read_csv(path + pepe_trades_file),
