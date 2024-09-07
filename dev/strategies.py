@@ -45,7 +45,7 @@ def generate_random_strategy(
     instruments: set[str],
     mode: str, 
     length: int, 
-    max_quantity: int = 1000,
+    max_quantity: int = 100,
     hold_probability: float = 0.33,
 ) -> Strategy:
     """
@@ -89,7 +89,7 @@ def generate_cooltoknowfuture_strategy(
     mode: str, 
     name: str,
     candles: dict[str, CandleSeries],
-    quantity: int = 1000,
+    quantity: int = 100,
 ) -> Strategy:
     """
     Generates strategy that buys and sells contracts to maximize benefits. Knows the next OHLC candle state.
@@ -126,8 +126,8 @@ def generate_cooltoknowfuture_strategy(
                 curr_pos[instr] = cndls.get_value_at(t, CandleSeries.CLOSE)
                 next_pos[instr] = cndls.get_value_at(t+1, CandleSeries.CLOSE)
             elif mode == Strategy.AVERAGE:
-                curr_pos[instr] = (cndls.get_value_at(t, CandleSeries.HIGH) + cndls.get_value_at(t, CandleSeries.LOW)) / 2
-                next_pos[instr]= (cndls.get_value_at(t+1, CandleSeries.HIGH) + cndls.get_value_at(t+1, CandleSeries.LOW)) / 2
+                curr_pos[instr] = (cndls.get_value_at(t, CandleSeries.AVG_BUY_PRICE) + cndls.get_value_at(t, CandleSeries.AVG_SELL_PRICE)) / 2
+                next_pos[instr]= (cndls.get_value_at(t+1, CandleSeries.AVG_BUY_PRICE) + cndls.get_value_at(t+1, CandleSeries.AVG_SELL_PRICE)) / 2
             
             if curr_pos[instr] <= next_pos[instr]:
                 actions[instr] = Action(quantity)

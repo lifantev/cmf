@@ -9,7 +9,7 @@ class TradingStats:
     pnl: float
     traded_volume: int
     max_drawdown: float
-    avg_holding_time: dict[str, float] 
+    avg_holding_time: dict[str, float] # fraction of hold time from total time
     position_flips: dict[str, int]
     sharpe_ratio: float 
     sortino_ratio: float 
@@ -101,31 +101,36 @@ class TradingSimulator:
         avg_holding_time: dict[str, int] = defaultdict(int)
         curr_position: dict[str, int] = defaultdict(int)
 
-        for t in range(self.candles_number): # iterate over candles
+        for t in range(self.candles_number-1): # iterate over candles
             actions = strategy.actions_vector[t]
             if not actions:
                 continue
 
+            _pnl: float = 0.0
             for instr, action in actions.items(): # iterate over instruments and their action within this candle
-                price = self._trading_price(instr, strategy.mode, action.quantity, t)             
+                action_price = self._action_price(instr, strategy.mode, action.quantity, t)             
                 traded_volume += abs(action.quantity)
 
+                # "last traded price", since close price is used for action price of CLOSE strategy, use next candles price
+                ltp = self._action_price(instr, strategy.mode, action.quantity, t+1) 
+                
                 if action.quantity > 0: # buy
-                    pnl -= price * action.quantity 
+                    _pnl += (ltp - action_price) * action.quantity 
                     if curr_position[instr] <= 0:
                         curr_position[instr] = 1
                         position_flips[instr] += 1
                 elif action.quantity < 0: # sell
-                    pnl += price * abs(action.quantity) 
+                    _pnl += (ltp - action_price) * action.quantity
                     if curr_position[instr] >= 0:
                         curr_position[instr] = -1
                         position_flips[instr] += 1
                 else:  # hold
-                    avg_holding_time[instr] += 1 
-        
+                    avg_holding_time[instr] += 1
+
+            pnl += _pnl 
+            pnl_series[t] = _pnl
             max_pnl = max(max_pnl, pnl)
             max_drawdown = max(max_drawdown, max_pnl - pnl)
-            pnl_series[t] = pnl
 
         sharpe_ratio = _calc_sharpe_ratio(pnl_series)
         sortino_ratio = _calc_sortino_ratio(pnl_series)
@@ -141,7 +146,7 @@ class TradingSimulator:
         )
 
 
-    def _trading_price(self, instrument: str, mode: str, quantity: int, t: int) -> float:
+    def _action_price(self, instrument: str, mode: str, quantity: int, t: int) -> float:
         """
         Get trading price for instrument's candle at index T based on mode and quantity.
         """
@@ -160,9 +165,13 @@ class TradingSimulator:
         raise ValueError(f"Unsupported mode '{mode}'. Supported modes are: {Strategy.valid_modes()}")
 
 
-def _calc_sharpe_ratio(pnl):
-    return np.mean(pnl) / np.std(pnl) if np.std(pnl) != 0 else 0
+def _calc_sharpe_ratio(pnls) -> float:
+    if not len(pnls): return 0
+    return np.mean(pnls) / np.std(pnls) if np.std(pnls) != 0 else 0
 
-def _calc_sortino_ratio(pnl):
-    downside_std = np.std([p for p in pnl if p < 0])
-    return np.mean(pnl) / downside_std if downside_std != 0 else 0
+def _calc_sortino_ratio(pnls) -> float:
+    if not len(pnls): return 0
+    downside_pnls = [p for p in pnls if p < 0]
+    if not len(downside_pnls): return float('+inf')
+    downside_std = np.std(pnls)
+    return np.mean(pnls) / downside_std if downside_std != 0 else 0
