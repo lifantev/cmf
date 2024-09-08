@@ -1,14 +1,16 @@
 from dataclasses import dataclass
 import pandas as pd
 
-PEPEUSDT = 'pepeusdt'
-DOGEUSDT = 'dogeusdt'
+PEPEUSDT = "pepeusdt"
+DOGEUSDT = "dogeusdt"
+
 
 @dataclass
 class MarketData:
     """
     LOB and Trades dataframes of trading instrument.
     """
+
     lob: pd.DataFrame
     trades: pd.DataFrame
 
@@ -19,7 +21,7 @@ def load_market_data(path: str) -> dict[str, MarketData]:
 
     Parameters
     --------
-    path: str 
+    path: str
         Path to directory containing market data files.
 
     Returns
@@ -30,10 +32,10 @@ def load_market_data(path: str) -> dict[str, MarketData]:
     NOTES:
     --------
     Expects the following files to be present in the specified path:
-        bbo_1000pepeusdt.csv, 
-        trades_1000pepeusdt.csv, 
-        bbo_1000dogeusdt.csv, 
-        trades_1000dogeusdt.csv 
+        bbo_1000pepeusdt.csv,
+        trades_1000pepeusdt.csv,
+        bbo_1000dogeusdt.csv,
+        trades_1000dogeusdt.csv
     """
     pepe_lob_file = "bbo_1000pepeusdt.csv"
     doge_lob_file = "bbo_dogeusdt.csv"
