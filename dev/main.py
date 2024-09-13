@@ -5,7 +5,11 @@ import strategies as strat
 import simulator as sim
 
 if __name__ == "__main__":
-
+    # Expects the following files to be present in the specified path:
+    #         bbo_1000pepeusdt.csv,
+    #         trades_1000pepeusdt.csv,
+    #         bbo_1000dogeusdt.csv,
+    #         trades_1000dogeusdt.csv
     data: dict[str, md.MarketData] = md.load_market_data("./")
 
     print("Generating candles")
