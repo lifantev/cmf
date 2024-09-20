@@ -11,7 +11,6 @@ class CandleSeries:
     """
     Candle represents OLHC candle. CandleSeries stores pandas.DataFrame with trading statistics.
     Columns in DataFrame:
-    - timestamp
     - open
     - high
     - low
@@ -22,7 +21,6 @@ class CandleSeries:
     - sell_volume
     """
 
-    TIMESTAMP = "timestamp"
     OPEN = "open"
     CLOSE = "close"
     HIGH = "high"
@@ -96,7 +94,7 @@ def generate_candles(
         }
 
 
-# helper to generate candles for single instrument
+# Helper to generate candles for single instrument
 def _gen_cnd(md: MarketData, window_ms: int) -> CandleSeries:
     data: pd.DataFrame = _generate_candles_dataframe(md, window_ms)
     return CandleSeries(
@@ -122,81 +120,67 @@ def _generate_candles_dataframe(data: MarketData, window_ms: int) -> pd.DataFram
     retval: pandas.DataFrame
         Data for CandleSeries.
     """
-    sampled_trades = data.trades.resample(f"{window_ms}ms")
-    sampled_trades["price"].ohlc()
 
-    with ProcessPoolExecutor() as executor:
-        ohlc_future = executor.submit(_calc_ohlc_data, sampled_trades)
-        buy_avg_future = executor.submit(_calc_buy_avg_price, sampled_trades)
-        sell_avg_future = executor.submit(_calc_sell_avg_price, sampled_trades)
-        buy_vol_future = executor.submit(_calc_buy_volume, sampled_trades)
-        sell_vol_future = executor.submit(_calc_sell_volume, sampled_trades)
-
-        ohlc_data = ohlc_future.result()
-        buy_avg_price = buy_avg_future.result()
-        sell_avg_price = sell_avg_future.result()
-        buy_volume = buy_vol_future.result()
-        sell_volume = sell_vol_future.result()
-
-    candles = pd.concat(
-        [ohlc_data, buy_avg_price, sell_avg_price, buy_volume, sell_volume], axis=1
+    # Resample data to calculate OHLC for each window
+    ohlc = data.trades.resample(f"{window_ms}ms").agg(
+        {
+            "price": ["first", "max", "min", "last"],
+        }
     )
+    # NOTE: assumtion
+    # Fill NaN values with 0, e.g. when no trades occurred in a window
+    ohlc = ohlc.fillna(0)
+
+    # Rename OHLC
+    ohlc.columns = pd.Index(["open", "high", "low", "close"])
+
+    # Calculate buy and sell volumes
+    buy_volume = (
+        data.trades[data.trades["side"] == "buy"]
+        .resample(f"{window_ms}ms")["amount"]
+        .sum()
+    )
+    sell_volume = (
+        data.trades[data.trades["side"] == "sell"]
+        .resample(f"{window_ms}ms")["amount"]
+        .sum()
+    )
+
+    # Calculate average buy and sell prices
+    avg_buy_price = (
+        data.trades[data.trades["side"] == "buy"]
+        .resample(f"{window_ms}ms")["price"]
+        .mean()
+    )
+    avg_sell_price = (
+        data.trades[data.trades["side"] == "sell"]
+        .resample(f"{window_ms}ms")["price"]
+        .mean()
+    )
+
+    # NOTE: assumtion
+    # Fill NaN values with 0, e.g. when no trades occurred in a window
+    buy_volume = buy_volume.fillna(0)
+    sell_volume = sell_volume.fillna(0)
+    avg_buy_price = avg_buy_price.fillna(0)
+    avg_sell_price = avg_sell_price.fillna(0)
+
+    # Combine all data
+    candles = pd.concat(
+        [ohlc, buy_volume, sell_volume, avg_buy_price, avg_sell_price], axis=1
+    )
+
     candles.columns = pd.Index(
         [
             CandleSeries.OPEN,
             CandleSeries.HIGH,
             CandleSeries.LOW,
             CandleSeries.CLOSE,
-            CandleSeries.AVG_BUY_PRICE,
-            CandleSeries.AVG_SELL_PRICE,
             CandleSeries.BUY_VOLUME,
             CandleSeries.SELL_VOLUME,
+            CandleSeries.AVG_BUY_PRICE,
+            CandleSeries.AVG_SELL_PRICE,
         ]
     )
+
     return candles
-
-
-def _calc_ohlc_data(trades):
-    ohlc_data = trades["price"].ohlc()
-    return ohlc_data.interpolate(method="linear")
-
-
-def _calc_buy_avg_price(trades):
-    return trades.apply(
-        lambda x: (
-            np.average(
-                x["price"][x["side"] == "buy"], weights=x["amount"][x["side"] == "buy"]
-            )
-            if (x["side"] == "buy").any()
-            else 0
-        )
-    )
-
-
-def _calc_sell_avg_price(trades):
-    return trades.apply(
-        lambda x: (
-            np.average(
-                x["price"][x["side"] == "sell"],
-                weights=x["amount"][x["side"] == "sell"],
-            )
-            if (x["side"] == "sell").any()
-            else 0
-        )
-    )
-
-
-def _calc_buy_volume(trades):
-    return trades.apply(
-        lambda x: (
-            x["amount"][x["side"] == "buy"].sum() if (x["side"] == "buy").any() else 0
-        )
-    )
-
-
-def _calc_sell_volume(trades):
-    return trades.apply(
-        lambda x: (
-            x["amount"][x["side"] == "sell"].sum() if (x["side"] == "sell").any() else 0
-        )
-    )

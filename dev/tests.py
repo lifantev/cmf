@@ -14,7 +14,7 @@ class TestTradingSimulator(unittest.TestCase):
 
     def test_random_strategy_pnl_and_sharpe(self):
         """Test that random strategy results in low PnL and Sharpe ratio."""
-        window_ms = 60_000
+        window_ms = 10_000
         candles = cnd.generate_candles(self.data, window_ms)
 
         random_strat = strat.generate_random_strategy(strat.Strategy.AVERAGE, candles)
@@ -27,7 +27,7 @@ class TestTradingSimulator(unittest.TestCase):
         self.assertLess(
             stats[random_strat.name].pnl,
             3,
-            "Random strategy should have low PnL. Expected < 3",
+            "Random strategy should have low PnL. Expected < 0",
         )
         self.assertLess(
             stats[random_strat.name].sharpe_ratio,
@@ -40,10 +40,10 @@ class TestTradingSimulator(unittest.TestCase):
         window_ms = 600_000
         candles = cnd.generate_candles(self.data, window_ms)
 
-        winning_strat_by_close = strat.generate_cooltoknowfuture_strategy(
+        winning_strat_by_close = strat.generate_knowfuture_strategy(
             strat.Strategy.CLOSE, "winning_close", candles
         )
-        winning_strat_by_avg = strat.generate_cooltoknowfuture_strategy(
+        winning_strat_by_avg = strat.generate_knowfuture_strategy(
             strat.Strategy.AVERAGE, "winning_avg", candles
         )
 

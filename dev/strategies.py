@@ -75,28 +75,33 @@ def generate_random_strategy(
 
     max_quantity = abs(max_quantity)
     hold_probability = hold_probability if 0 <= hold_probability <= 1 else 0.33
-    actions_vector: list[Actions] = []
+    # Find the maximum length among all candles
+    max_length = max(candle.length for candle in candles.values())
+    # Random name for the strategy
+    strategy_name = "".join(random.choices(string.ascii_lowercase, k=5))
 
-    max_length = max([cndls.length for cndls in candles.values()])
-    for t in range(max_length):
-        actions: Actions = {}
-        for instr in candles.keys():
-            if t >= candles[instr].length:
-                continue
-
-            hold = 0 if random.random() < hold_probability else 1
-            quantity = random.randint(-max_quantity, max_quantity)
-            actions[instr] = Action(hold * quantity)
-        actions_vector.append(actions)
+    # Generate random actions for each candle
+    actions_vector: list[Actions] = [
+        {
+            instr: Action(
+                0
+                if random.random() < hold_probability
+                else random.randint(-max_quantity, max_quantity)
+            )
+            for instr, candle in candles.items()
+            if t < candle.length
+        }
+        for t in range(max_length)
+    ]
 
     return Strategy(
-        name="".join(random.choices(string.ascii_lowercase, k=5)),
+        name=strategy_name,
         mode=mode,
         actions_vector=actions_vector,
     )
 
 
-def generate_cooltoknowfuture_strategy(
+def generate_knowfuture_strategy(
     mode: str,
     name: str,
     candles: dict[str, CandleSeries],
@@ -125,36 +130,37 @@ def generate_cooltoknowfuture_strategy(
     if mode not in Strategy.valid_modes():
         raise ValueError(f"Invalid mode: {mode}. Valid modes: {Strategy.valid_modes()}")
 
-    actions_vector: list[Actions] = []
-    curr_pos: dict[str, int] = {}
-    next_pos: dict[str, int] = {}
     quantity = abs(quantity)
+    # Get maximum candles length among all instruments
+    max_length = max(candle.length for candle in candles.values())
+    actions_vector: list[Actions] = []
 
-    max_length = max([cndls.length for cndls in candles.values()])
+    # Iterate through series
     for t in range(max_length - 1):
         actions: Actions = {}
+
+        # Process each instrument's candles
         for instr, cndls in candles.items():
             if t >= cndls.length - 1:
                 continue
 
+            # Get the current and next position based on the trading mode
             if mode == Strategy.CLOSE:
-                curr_pos[instr] = cndls.get_value_at(t, CandleSeries.CLOSE)
-                next_pos[instr] = cndls.get_value_at(t + 1, CandleSeries.CLOSE)
+                curr_val = cndls.get_value_at(t, CandleSeries.CLOSE)
+                next_val = cndls.get_value_at(t + 1, CandleSeries.CLOSE)
             elif mode == Strategy.AVERAGE:
-                # raw average, won't fully work for short window_ms candles
-                curr_pos[instr] = (
+                # Raw average
+                curr_val = (
                     cndls.get_value_at(t, CandleSeries.AVG_BUY_PRICE)
                     + cndls.get_value_at(t, CandleSeries.AVG_SELL_PRICE)
                 ) / 2
-                next_pos[instr] = (
+                next_val = (
                     cndls.get_value_at(t + 1, CandleSeries.AVG_BUY_PRICE)
                     + cndls.get_value_at(t + 1, CandleSeries.AVG_SELL_PRICE)
                 ) / 2
 
-            if curr_pos[instr] <= next_pos[instr]:
-                actions[instr] = Action(quantity)
-            else:
-                actions[instr] = Action(-quantity)
+            actions[instr] = Action(quantity if curr_val <= next_val else -quantity)
+
         actions_vector.append(actions)
 
     return Strategy(

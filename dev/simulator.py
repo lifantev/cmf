@@ -10,7 +10,7 @@ class TradingStats:
     pnl: float
     traded_volume: int
     max_drawdown: float
-    avg_holding_time: dict[str, float]  # fraction of hold time from total time
+    holding_time_percent: dict[str, float]  # Fraction: hold time / total time
     position_flips: dict[str, int]
     sharpe_ratio: float
     sortino_ratio: float
@@ -100,17 +100,20 @@ class TradingSimulator:
             actions = strategy.actions_vector[t]
             _pnl: float = 0.0
 
-            # iterate over instruments within this candle and apply actions
+            # Iterate over instruments within this candle and apply actions
             for instr, action in actions.items():
-                if not self._is_action_within_candles(instr, t):
+                if not self._is_action_within_candles(instr, t + 1):
                     continue
 
                 action_price = self._action_price(
                     instr, strategy.mode, action.quantity, t
                 )
-                traded_volume += abs(action.quantity)
+                # NOTE: Assumption: if action price is None, then action is not executed
+                if action_price == 0:
+                    avg_holding_time[instr] += 1
 
-                # "last traded price", since close price is used for action price of CLOSE strategy, use next candles price
+                traded_volume += abs(action.quantity)
+                # NOTE: "Last Traded Price". Since close price is used for action of CLOSE strategy, use next candles price.
                 ltp = self._action_price(instr, strategy.mode, action.quantity, t + 1)
 
                 if action.quantity > 0:  # buy
@@ -139,7 +142,7 @@ class TradingSimulator:
             traded_volume=traded_volume,
             max_drawdown=max_drawdown,
             position_flips=position_flips,
-            avg_holding_time={
+            holding_time_percent={
                 instr: (
                     holds
                     / min(self.candles[instr].length, len(strategy.actions_vector))
@@ -150,6 +153,7 @@ class TradingSimulator:
             sortino_ratio=sortino_ratio,
         )
 
+    # Helper to check if action has candles for its instrument at given T
     def _is_action_within_candles(self, instrument: str, t: int) -> bool:
         if instrument not in self.candles:
             raise ValueError(
@@ -179,12 +183,14 @@ class TradingSimulator:
         )
 
 
+# Calculates Sharpe Ratio
 def _calc_sharpe_ratio(pnls) -> float:
     if not len(pnls):
         return 0
     return np.mean(pnls) / np.std(pnls) if np.std(pnls) != 0 else 0
 
 
+# Calculates Sortino Ratio
 def _calc_sortino_ratio(pnls) -> float:
     if not len(pnls):
         return 0

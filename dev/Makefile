@@ -2,7 +2,7 @@
 
 .PHONY: run
 run:
-	echo "running a simulation..."
+	echo "running trading simulator..."
 	python3 main.py
 
 .PHONY: test
